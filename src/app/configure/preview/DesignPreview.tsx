@@ -13,6 +13,28 @@ import { useMutation } from "@tanstack/react-query";
 import { createCheckoutSession } from "./actions";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/use-toast";
+import { SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  handler: (response: { razorpay_payment_id: string }) => void;
+}
+
+interface RazorpayInstance {
+  open: () => void;
+  on: (event: string, callback: () => void) => void;
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => RazorpayInstance;
+  }
+}
 
 const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
   const router = useRouter();
@@ -22,13 +44,23 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
 
   useEffect(() => setShowConfetti(true), []);
 
+  useEffect(() => {
+    if (document.getElementById("razorpay-checkout")) return;
+
+    const script = document.createElement("script");
+    script.id = "razorpay-checkout";
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    document.body.appendChild(script);
+  }, []);
+
   const { color, model, material, finish } = configuration;
   const tw = COLORS.find(
-    (supportedColor) => supportedColor.value === color
+    (supportedColor) => supportedColor.value === color,
   )?.tw;
 
   const { label: modelLable } = MODELS.options.find(
-    ({ value }) => value === model
+    ({ value }) => value === model,
   )!;
 
   let totalPrice = BASE_PRICE;
@@ -37,12 +69,41 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
 
   if (finish === "textured") totalPrice += PRODUCT_PRICES.finish.textured;
 
-  const { mutate: createPaymentSession } = useMutation({
+  const {
+    mutate: createPaymentSession,
+    isPending: isCreatingPaymentSession,
+  } = useMutation({
     mutationKey: ["get-checkout-session"],
     mutationFn: createCheckoutSession,
-    onSuccess: ({ url }) => {
-      if (url) router.push(url);
-      else throw new Error("Unable to retrieve payment URL.");
+    onSuccess: ({ orderId, amount, currency, keyId, localOrderId }) => {
+      if (!window.Razorpay) {
+        toast({
+          title: "Payment is still loading",
+          description: "Please try again in a moment.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const payment = new window.Razorpay({
+        key: keyId,
+        amount,
+        currency,
+        name: "Casecobra",
+        description: "Custom phone case",
+        order_id: orderId,
+        handler: () => router.push(`/thank-you?orderId=${localOrderId}`),
+      });
+
+      payment.on("payment.failed", () => {
+        toast({
+          title: "Payment failed",
+          description: "Please try again or use another payment method.",
+          variant: "destructive",
+        });
+      });
+
+      payment.open();
     },
     onError: () => {
       toast({
@@ -144,14 +205,26 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
             </div>
 
             <div className="mt-8 flex justify-end pb-12">
-              <Button
-                onClick={() =>
-                  createPaymentSession({ configId: configuration.id })
-                }
-                className="px-4 sm:px-6 lg:px-8"
-              >
-                Check out <ArrowRight className="h-4 w-4 ml-1.5 inline" />
-              </Button>
+              <SignedIn>
+                <Button
+                  disabled={isCreatingPaymentSession}
+                  isLoading={isCreatingPaymentSession}
+                  loadingText="Opening checkout..."
+                  onClick={() =>
+                    createPaymentSession({ configId: configuration.id })
+                  }
+                  className="px-4 sm:px-6 lg:px-8"
+                >
+                  Buy now <ArrowRight className="h-4 w-4 ml-1.5 inline" />
+                </Button>
+              </SignedIn>
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <Button className="px-4 sm:px-6 lg:px-8">
+                    Buy now <ArrowRight className="h-4 w-4 ml-1.5 inline" />
+                  </Button>
+                </SignInButton>
+              </SignedOut>
             </div>
           </div>
         </div>

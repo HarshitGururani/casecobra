@@ -18,10 +18,30 @@ const page = () => {
   const router = useRouter();
 
   const { startUpload, isUploading } = useUploadThing("imageUploader", {
-    onClientUploadComplete: ([data]) => {
-      const configId = data.serverData.configId;
-      startTransition(() => {
-        router.push(`/configure/design?id=${configId}`);
+    onClientUploadComplete: (files) => {
+      console.log("[upload] client complete", files);
+      const configId = files[0]?.serverData?.configId;
+
+      if (!configId) {
+        console.error("[upload] missing configId", files[0]);
+        toast({
+          title: "Upload completed, but setup could not continue",
+          description: "Please try uploading the image again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log("[upload] redirecting", configId);
+      router.replace(`/configure/design?id=${configId}`);
+    },
+
+    onUploadError: (error) => {
+      console.error("[upload] client error", error);
+      toast({
+        title: "Upload failed",
+        description: error.message,
+        variant: "destructive",
       });
     },
 
@@ -43,9 +63,9 @@ const page = () => {
   };
 
   const onDropAccepted = (acceptedFiles: File[]) => {
-    startUpload(acceptedFiles, { configId: undefined });
-
+    console.log("[upload] file accepted", acceptedFiles[0]?.name);
     setIsDragOver(false);
+    void startUpload(acceptedFiles, { configId: undefined });
   };
 
   const [isPending, startTransition] = useTransition();
@@ -56,7 +76,7 @@ const page = () => {
         "relative h-full flex-1 my-16 w-full rounded-xl bg-gray-900/5 p-2 ring-1 ring-inset ring-gray-900/10 lg:rounded-2xl flex justify-center flex-col items-center",
         {
           "ring-blue-900/25 bg-blue-900/10": isDragOver,
-        }
+        },
       )}
     >
       <div className="relative flex flex-1 flex-col items-center justify-center w-full">

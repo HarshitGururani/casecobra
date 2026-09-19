@@ -2,7 +2,7 @@
 
 import { BASE_PRICE, PRODUCT_PRICES } from "@/config/products";
 import { db } from "@/db";
-import { stripe } from "@/lib/stripe";
+import { razorpay } from "@/lib/razorpay";
 import { currentUser } from "@clerk/nextjs/server";
 import { Order } from "@prisma/client";
 
@@ -11,6 +11,12 @@ export const createCheckoutSession = async ({
 }: {
   configId: string;
 }) => {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    throw new Error(
+      "Razorpay is not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."
+    );
+  }
+
   const configuration = await db.configuration.findUnique({
     where: { id: configId },
   });
@@ -25,6 +31,11 @@ export const createCheckoutSession = async ({
     throw new Error("You need to be logged in");
   }
 
+  const email = user.emailAddresses[0]?.emailAddress;
+  if (!email) {
+    throw new Error("Your account does not have an email address");
+  }
+
   const { finish, material } = configuration;
 
   let price = BASE_PRICE;
@@ -32,7 +43,13 @@ export const createCheckoutSession = async ({
   if (material === "polycarbonate")
     price += PRODUCT_PRICES.material.polycarbonate;
 
-  let order: Order | undefined = undefined;
+  await db.user.upsert({
+    where: { id: user.id },
+    update: { email },
+    create: { id: user.id, email },
+  });
+
+  let order: Order | undefined;
 
   const existingOrder = await db.order.findFirst({
     where: {
@@ -40,8 +57,6 @@ export const createCheckoutSession = async ({
       configurationId: configuration.id,
     },
   });
-
-  console.log(user.id, configuration.id);
 
   if (existingOrder) {
     order = existingOrder;
@@ -55,27 +70,22 @@ export const createCheckoutSession = async ({
     });
   }
 
-  const product = await stripe.products.create({
-    name: "Custom iPhone Case",
-    images: [configuration.imageUrl],
-    default_price_data: {
-      currency: "USD",
-      unit_amount: price,
-    },
-  });
-
-  const stripeSession = await stripe.checkout.sessions.create({
-    success_url: `${process.env.NEXT_PUBLIC_SERVER_URL}/thank-you?orderId=${order.id}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_SERVER_URL}/configure/preview?id=${configuration.id}`,
-    payment_method_types: ["card", "paypal"],
-    mode: "payment",
-    shipping_address_collection: { allowed_countries: ["DE", "US"] },
-    metadata: {
+  const razorpayOrder = await razorpay.orders.create({
+    amount: price,
+    currency: "INR",
+    receipt: order.id,
+    notes: {
       userId: user.id,
       orderId: order.id,
+      configurationId: configuration.id,
     },
-    line_items: [{ price: product.default_price as string, quantity: 1 }],
   });
 
-  return { url: stripeSession.url };
+  return {
+    orderId: razorpayOrder.id,
+    amount: razorpayOrder.amount,
+    currency: razorpayOrder.currency,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    localOrderId: order.id,
+  };
 };
