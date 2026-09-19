@@ -69,50 +69,48 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
 
   if (finish === "textured") totalPrice += PRODUCT_PRICES.finish.textured;
 
-  const {
-    mutate: createPaymentSession,
-    isPending: isCreatingPaymentSession,
-  } = useMutation({
-    mutationKey: ["get-checkout-session"],
-    mutationFn: createCheckoutSession,
-    onSuccess: ({ orderId, amount, currency, keyId, localOrderId }) => {
-      if (!window.Razorpay) {
+  const { mutate: createPaymentSession, isPending: isCreatingPaymentSession } =
+    useMutation({
+      mutationKey: ["get-checkout-session"],
+      mutationFn: createCheckoutSession,
+      onSuccess: ({ orderId, amount, currency, keyId, localOrderId }) => {
+        if (!window.Razorpay) {
+          toast({
+            title: "Payment is still loading",
+            description: "Please try again in a moment.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const payment = new window.Razorpay({
+          key: keyId,
+          amount: Number(amount),
+          currency,
+          name: "Casecobra",
+          description: "Custom phone case",
+          order_id: orderId,
+          handler: () => router.push(`/thank-you?orderId=${localOrderId}`),
+        });
+
+        payment.on("payment.failed", () => {
+          toast({
+            title: "Payment failed",
+            description: "Please try again or use another payment method.",
+            variant: "destructive",
+          });
+        });
+
+        payment.open();
+      },
+      onError: () => {
         toast({
-          title: "Payment is still loading",
-          description: "Please try again in a moment.",
+          title: "Something went wrong",
+          description: "There was an error on our end. Please try again.",
           variant: "destructive",
         });
-        return;
-      }
-
-      const payment = new window.Razorpay({
-        key: keyId,
-        amount: Number(amount),
-        currency,
-        name: "Casecobra",
-        description: "Custom phone case",
-        order_id: orderId,
-        handler: () => router.push(`/thank-you?orderId=${localOrderId}`),
-      });
-
-      payment.on("payment.failed", () => {
-        toast({
-          title: "Payment failed",
-          description: "Please try again or use another payment method.",
-          variant: "destructive",
-        });
-      });
-
-      payment.open();
-    },
-    onError: () => {
-      toast({
-        title: "Something went wrong",
-        description: "There was an error on our end. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
+      },
+    });
 
   return (
     <>
