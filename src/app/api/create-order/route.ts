@@ -7,29 +7,46 @@ import { getRazorpay } from "@/lib/razorpay";
 export async function POST(request: Request) {
   try {
     const user = await currentUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { configId } = await request.json();
     if (typeof configId !== "string") {
-      return NextResponse.json({ error: "configId is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "configId is required" },
+        { status: 400 },
+      );
     }
 
-    const configuration = await db.configuration.findUnique({ where: { id: configId } });
+    const configuration = await db.configuration.findUnique({
+      where: { id: configId },
+    });
     if (!configuration) {
-      return NextResponse.json({ error: "Configuration not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Configuration not found" },
+        { status: 404 },
+      );
     }
 
     const email = user.emailAddresses[0]?.emailAddress;
     if (!email) {
-      return NextResponse.json({ error: "Account email is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Account email is required" },
+        { status: 400 },
+      );
     }
 
     let amount = BASE_PRICE;
-    if (configuration.material === "polycarbonate") amount += PRODUCT_PRICES.material.polycarbonate;
-    if (configuration.finish === "textured") amount += PRODUCT_PRICES.finish.textured;
+    if (configuration.material === "polycarbonate")
+      amount += PRODUCT_PRICES.material.polycarbonate;
+    if (configuration.finish === "textured")
+      amount += PRODUCT_PRICES.finish.textured;
     const amountInPaise = amount * 100;
     if (amountInPaise < 100) {
-      return NextResponse.json({ error: "Order amount is too low" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Order amount is too low" },
+        { status: 400 },
+      );
     }
 
     await db.user.upsert({
@@ -38,13 +55,23 @@ export async function POST(request: Request) {
       create: { id: user.id, email },
     });
 
-    const order = await db.order.create({
-      data: {
-        amount,
+    const existingOrder = await db.order.findFirst({
+      where: {
         userId: user.id,
         configurationId: configuration.id,
+        isPaid: false,
       },
     });
+
+    const order =
+      existingOrder ??
+      (await db.order.create({
+        data: {
+          amount,
+          userId: user.id,
+          configurationId: configuration.id,
+        },
+      }));
 
     const razorpayOrder = await getRazorpay().orders.create({
       amount: amountInPaise,
@@ -62,6 +89,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Razorpay order creation failed", error);
-    return NextResponse.json({ error: "Unable to create payment order" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Unable to create payment order" },
+      { status: 500 },
+    );
   }
 }

@@ -11,8 +11,14 @@ import { BASE_PRICE, PRODUCT_PRICES } from "@/config/products";
 import { Button } from "@/components/ui/button";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useToast } from "@/components/ui/use-toast";
-import { SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
+import {
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  useAuth,
+} from "@clerk/nextjs";
 
 interface RazorpayOptions {
   key: string;
@@ -44,6 +50,8 @@ declare global {
 
 const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { isSignedIn } = useAuth();
   const { toast } = useToast();
 
   const [showConfetti, setShowConfetti] = useState(false);
@@ -86,7 +94,8 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
         });
 
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "Unable to create order");
+        if (!response.ok)
+          throw new Error(data.error ?? "Unable to create order");
         return data;
       },
       onSuccess: ({ order_id, amount, currency, key_id, local_order_id }) => {
@@ -156,6 +165,13 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
         });
       },
     });
+
+  useEffect(() => {
+    if (isSignedIn && searchParams.get("checkout") === "1") {
+      createPaymentSession(configuration.id);
+      router.replace(`/configure/preview?id=${configuration.id}`);
+    }
+  }, [configuration.id, createPaymentSession, isSignedIn, router, searchParams]);
 
   return (
     <>
@@ -253,16 +269,17 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
                   disabled={isCreatingPaymentSession}
                   isLoading={isCreatingPaymentSession}
                   loadingText="Opening checkout..."
-                  onClick={() =>
-                    createPaymentSession(configuration.id)
-                  }
+                  onClick={() => createPaymentSession(configuration.id)}
                   className="px-4 sm:px-6 lg:px-8"
                 >
                   Buy now <ArrowRight className="h-4 w-4 ml-1.5 inline" />
                 </Button>
               </SignedIn>
               <SignedOut>
-                <SignInButton mode="modal">
+                <SignInButton
+                  mode="modal"
+                  fallbackRedirectUrl={`/configure/preview?id=${configuration.id}&checkout=1`}
+                >
                   <Button className="px-4 sm:px-6 lg:px-8">
                     Buy now <ArrowRight className="h-4 w-4 ml-1.5 inline" />
                   </Button>

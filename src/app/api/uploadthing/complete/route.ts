@@ -21,7 +21,10 @@ export async function POST(request: Request) {
 
     const response = await fetch(imageUrl);
     if (!response.ok) {
-      return NextResponse.json({ error: "Uploaded image cannot be read" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Uploaded image cannot be read" },
+        { status: 400 },
+      );
     }
 
     const metadata = await sharp(await response.arrayBuffer()).metadata();
