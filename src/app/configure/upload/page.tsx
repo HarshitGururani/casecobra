@@ -18,12 +18,26 @@ const page = () => {
   const router = useRouter();
 
   const { startUpload, isUploading } = useUploadThing("imageUploader", {
-    onClientUploadComplete: (files) => {
+    onClientUploadComplete: async (files) => {
       console.log("[upload] client complete", files);
-      const configId = files[0]?.serverData?.configId;
+      const uploadedFile = files[0];
+      let configId = uploadedFile?.serverData?.configId;
+      const imageUrl = uploadedFile?.ufsUrl ?? uploadedFile?.url;
+
+      if (!configId && imageUrl) {
+        console.log("[upload] resolving config from uploaded URL");
+        const response = await fetch("/api/uploadthing/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageUrl }),
+        });
+        const data = await response.json();
+        console.log("[upload] config fallback response", response.status, data);
+        configId = data.configId;
+      }
 
       if (!configId) {
-        console.error("[upload] missing configId", files[0]);
+        console.error("[upload] missing configId", uploadedFile);
         toast({
           title: "Upload completed, but setup could not continue",
           description: "Please try uploading the image again.",

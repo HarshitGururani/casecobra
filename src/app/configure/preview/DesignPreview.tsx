@@ -10,7 +10,6 @@ import { ArrowRight, Check, UserRound } from "lucide-react";
 import { BASE_PRICE, PRODUCT_PRICES } from "@/config/products";
 import { Button } from "@/components/ui/button";
 import { useMutation } from "@tanstack/react-query";
-import { createCheckoutSession } from "./actions";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/use-toast";
 import { SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
@@ -22,7 +21,14 @@ interface RazorpayOptions {
   name: string;
   description: string;
   order_id: string;
-  handler: (response: { razorpay_payment_id: string }) => void;
+  handler: (response: RazorpayPaymentResponse) => void;
+  modal?: { ondismiss?: () => void };
+}
+
+interface RazorpayPaymentResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
 }
 
 interface RazorpayInstance {
@@ -72,8 +78,18 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
   const { mutate: createPaymentSession, isPending: isCreatingPaymentSession } =
     useMutation({
       mutationKey: ["get-checkout-session"],
-      mutationFn: createCheckoutSession,
-      onSuccess: ({ orderId, amount, currency, keyId, localOrderId }) => {
+      mutationFn: async (configId: string) => {
+        const response = await fetch("/api/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ configId }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Unable to create order");
+        return data;
+      },
+      onSuccess: ({ order_id, amount, currency, key_id, local_order_id }) => {
         if (!window.Razorpay) {
           toast({
             title: "Payment is still loading",
@@ -84,13 +100,42 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
         }
 
         const payment = new window.Razorpay({
-          key: keyId,
+          key: key_id,
           amount: Number(amount),
           currency,
           name: "Casecobra",
           description: "Custom phone case",
-          order_id: orderId,
-          handler: () => router.push(`/thank-you?orderId=${localOrderId}`),
+          order_id,
+          handler: async (paymentResponse) => {
+            const response = await fetch("/api/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...paymentResponse,
+                local_order_id,
+              }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+              toast({
+                title: "Payment verification failed",
+                description: data.error ?? "Please contact support.",
+                variant: "destructive",
+              });
+              return;
+            }
+
+            router.push(`/thank-you?orderId=${local_order_id}`);
+          },
+          modal: {
+            ondismiss: () => {
+              toast({
+                title: "Payment cancelled",
+                description: "You can try again whenever you are ready.",
+              });
+            },
+          },
         });
 
         payment.on("payment.failed", () => {
@@ -209,7 +254,7 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
                   isLoading={isCreatingPaymentSession}
                   loadingText="Opening checkout..."
                   onClick={() =>
-                    createPaymentSession({ configId: configuration.id })
+                    createPaymentSession(configuration.id)
                   }
                   className="px-4 sm:px-6 lg:px-8"
                 >
