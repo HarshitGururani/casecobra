@@ -87,7 +87,7 @@ const DesignPreview = ({ configuration }: { configuration: Configuration }) => {
 
       const payment = new window.Razorpay({
         key: keyId,
-        amount,
+        amount: Number(amount),
         currency,
         name: "Casecobra",
         description: "Custom phone case",
